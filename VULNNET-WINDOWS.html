@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VulNet Active Directory Attack - Detailed Command Walkthrough</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            line-height: 1.6;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #ffffff;
+            color: #000000;
+        }
+        h1, h2, h3 {
+            color: #000000;
+            border-bottom: 1px solid #cccccc;
+            padding-bottom: 5px;
+        }
+        .command {
+            background-color: #f5f5f5;
+            border: 1px solid #cccccc;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .explanation {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #fafafa;
+            border-left: 3px solid #666666;
+        }
+        .section {
+            margin: 30px 0;
+            page-break-inside: avoid;
+        }
+        .parameter {
+            font-weight: bold;
+            color: #333333;
+        }
+        .note {
+            background-color: #ffffcc;
+            border: 1px solid #cccc00;
+            padding: 10px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+
+<h1>VulNet Active Directory Attack - Complete Command Walkthrough</h1>
+
+<h2>Introduction to Active Directory Attacks</h2>
+<p>Active Directory (AD) is Microsoft's directory service that manages users, computers, and resources in Windows networks. This walkthrough explains how attackers systematically compromise AD environments by exploiting common misconfigurations and weak security practices.</p>
+
+<h2>Basic Active Directory Concepts</h2>
+
+<h3>What is Active Directory?</h3>
+<p>Active Directory is like a phone book for a Windows network. It stores information about users, computers, and resources, and controls who can access what. When you log into a Windows computer at work, you're authenticating against Active Directory.</p>
+
+<h3>Key Components:</h3>
+<ul>
+<li><strong>Domain Controller (DC):</strong> The server that runs Active Directory and handles authentication</li>
+<li><strong>Kerberos:</strong> The authentication protocol that issues "tickets" to prove your identity</li>
+<li><strong>SMB (Server Message Block):</strong> Protocol for sharing files and printers over networks</li>
+<li><strong>NTLM:</strong> An older authentication protocol, still used in many environments</li>
+<li><strong>Service Principal Names (SPNs):</strong> Unique identifiers for services running on servers</li>
+</ul>
+
+<h2>Attack Chain Overview</h2>
+<p>This attack follows a typical Active Directory compromise pattern:</p>
+<ol>
+<li>Reconnaissance - Finding open ports and services</li>
+<li>Enumeration - Discovering users and shares</li>
+<li>Initial Access - Exploiting weak authentication</li>
+<li>Credential Harvesting - Stealing more passwords</li>
+<li>Lateral Movement - Moving to other systems</li>
+<li>Privilege Escalation - Gaining admin rights</li>
+<li>Domain Domination - Complete control</li>
+</ol>
+
+<div class="section">
+<h2>Phase 1: Initial Setup and Reconnaissance</h2>
+
+<h3>Command 1: Setting the Target</h3>
+<div class="command">export target=ip</div>
+<div class="explanation">
+<strong>Purpose:</strong> This creates a shell variable to store the target IP address.<br>
+<strong>What it does:</strong> Instead of typing the IP address repeatedly, you can use $target in other commands.<br>
+<strong>Why attackers use this:</strong> Saves time and reduces typing errors during the attack.
+</div>
+
+<h3>Command 2: Port Scanning with Nmap</h3>
+<div class="command">nmap -p- -Pn $target -v -T5 --min-rate 1500 --max-rtt-timeout 500ms --max-retries 3 --max-scan-delay 10ms --open -oA nmap_allports.txt</div>
+<div class="explanation">
+<strong>Purpose:</strong> Scan all 65,535 ports on the target to find open services.<br>
+<strong>Parameter breakdown:</strong><br>
+<span class="parameter">-p-</span> = Scan all ports (1-65535)<br>
+<span class="parameter">-Pn</span> = Skip host discovery (assume host is up)<br>
+<span class="parameter">-v</span> = Verbose output (show progress)<br>
+<span class="parameter">-T5</span> = Aggressive timing (fastest scan)<br>
+<span class="parameter">--min-rate 1500</span> = Send at least 1500 packets per second<br>
+<span class="parameter">--max-rtt-timeout 500ms</span> = Wait max 500ms for responses<br>
+<span class="parameter">--max-retries 3</span> = Retry unresponsive ports 3 times<br>
+<span class="parameter">--max-scan-delay 10ms</span> = Maximum delay between probes<br>
+<span class="parameter">--open</span> = Only show open ports<br>
+<span class="parameter">-oA nmap_allports.txt</span> = Save results in all formats<br>
+<strong>What attackers learn:</strong> Which services are running (web servers, databases, file shares, etc.)
+</div>
+</div>
+
+<div class="section">
+<h2>Phase 2: SMB and RPC Enumeration</h2>
+
+<h3>Command 3: RPC Client Connection</h3>
+<div class="command">rpcclient -N $target</div>
+<div class="explanation">
+<strong>Purpose:</strong> Connect to the Windows RPC service without authentication.<br>
+<span class="parameter">-N</span> = No password (null session)<br>
+<strong>What it does:</strong> RPC (Remote Procedure Call) allows programs to execute functions on remote computers. Older Windows systems sometimes allow anonymous connections.<br>
+<strong>Information gathered:</strong> User lists, group memberships, system information<br>
+<strong>Why it works:</strong> Many systems have legacy configurations that allow anonymous RPC access.
+</div>
+
+<h3>Command 4: SMB Share Enumeration</h3>
+<div class="command">smbclient -L \\\\$target\\</div>
+<div class="explanation">
+<strong>Purpose:</strong> List all shared folders on the target system.<br>
+<span class="parameter">-L</span> = List shares<br>
+<span class="parameter">\\\\$target\\</span> = SMB path to target<br>
+<strong>What attackers find:</strong> Shared folders that might contain sensitive files or allow anonymous access<br>
+<strong>Common findings:</strong> ADMIN$, C$, IPC$, and custom shares like SYSVOL, NETLOGON
+</div>
+
+<h3>Commands 5-6: Accessing Anonymous Shares</h3>
+<div class="command">smbclient -U "" //$target/Vulnet-Enterprise-Anonymous<br>
+smbclient -U "" //$target/Vulnet-Business-Anonymous</div>
+<div class="explanation">
+<strong>Purpose:</strong> Access shares that allow anonymous (no password) connections.<br>
+<span class="parameter">-U ""</span> = Use empty username (anonymous)<br>
+<strong>What attackers do:</strong> Download files, look for usernames, passwords, or sensitive documents<br>
+<strong>Common finds:</strong> User lists, configuration files, password policies, organizational charts<br>
+<strong>Note:</strong> The comment "(obtained usernames for further kerberoasting)" indicates usernames were found in these shares.
+</div>
+
+<div class="note">
+<strong>Attack Progress Check:</strong> At this point, the attacker has identified open services and found usernames. The next step is to create a target list for password attacks.
+</div>
+</div>
+
+<div class="section">
+<h2>Phase 3: User Enumeration and List Building</h2>
+
+<h3>Command 7: Combining User Lists</h3>
+<div class="command">cat users.txt >> /usr/share/seclists/Usernames/Names/names.txt</div>
+<div class="explanation">
+<strong>Purpose:</strong> Add discovered usernames to a larger username list.<br>
+<span class="parameter">cat</span> = Display file contents<br>
+<span class="parameter">>></span> = Append to file (don't overwrite)<br>
+<strong>Why attackers do this:</strong> Combine specific usernames found on the target with common usernames for comprehensive testing<br>
+<strong>SecLists:</strong> A collection of usernames, passwords, and other security testing lists
+</div>
+
+<h3>Command 8: Counting Usernames</h3>
+<div class="command">cat /usr/share/seclists/Usernames/Names/names.txt | wc</div>
+<div class="explanation">
+<strong>Purpose:</strong> Count how many usernames are in the combined list.<br>
+<span class="parameter">|</span> = Pipe (send output to next command)<br>
+<span class="parameter">wc</span> = Word count (shows lines, words, characters)<br>
+<strong>Why it matters:</strong> Helps estimate how long username enumeration will take
+</div>
+
+<h3>Command 9: CrackMapExec SMB Check</h3>
+<div class="command">crackmapexec smb $target</div>
+<div class="explanation">
+<strong>Purpose:</strong> Gather basic information about the SMB service.<br>
+<strong>What it reveals:</strong><br>
+- Operating system version<br>
+- Computer name<br>
+- Domain name<br>
+- SMB signing status<br>
+<strong>Why it's important:</strong> Confirms the target is a Windows system and reveals the domain name needed for subsequent attacks.
+</div>
+
+<h3>Command 10: Locating Kerbrute</h3>
+<div class="command">whereis kerbrute</div>
+<div class="explanation">
+<strong>Purpose:</strong> Find the location of the kerbrute tool.<br>
+<strong>What kerbrute does:</strong> Fast username enumeration against Kerberos authentication<br>
+<strong>Why it's needed:</strong> Kerbrute can quickly validate which usernames exist in Active Directory without triggering account lockouts.
+</div>
+
+<h3>Command 11: Kerberos Username Enumeration</h3>
+<div class="command">kerbrute userenum users.txt --dc $target -d vulnnet-rst.local</div>
+<div class="explanation">
+<strong>Purpose:</strong> Validate which usernames exist in the Active Directory domain.<br>
+<span class="parameter">userenum</span> = Username enumeration mode<br>
+<span class="parameter">users.txt</span> = File containing potential usernames<br>
+<span class="parameter">--dc $target</span> = Domain controller IP address<br>
+<span class="parameter">-d vulnnet-rst.local</span> = Domain name<br>
+<strong>How it works:</strong> Sends Kerberos AS-REQ requests to check if usernames exist<br>
+<strong>Advantage:</strong> Much faster than SMB enumeration and doesn't cause account lockouts<br>
+<strong>Output:</strong> List of valid usernames in the domain
+</div>
+</div>
+
+<div class="section">
+<h2>Phase 4: AS-REP Roasting Attack</h2>
+
+<h3>What is AS-REP Roasting?</h3>
+<p>AS-REP Roasting targets user accounts that have "Do not require Kerberos preauthentication" enabled. When this setting is configured, anyone can request an authentication ticket for that user without knowing their password. The ticket contains the user's password hash, which can then be cracked offline.</p>
+
+<h3>Command 12: Performing AS-REP Roasting</h3>
+<div class="command">impacket-GetNPUsers vulnnet-rst.local/ -dc-ip $target -usersfile users.txt -format john -outputfile hashes.txt</div>
+<div class="explanation">
+<strong>Purpose:</strong> Request authentication tickets for users without Kerberos pre-authentication.<br>
+<span class="parameter">impacket-GetNPUsers</span> = Tool for AS-REP roasting<br>
+<span class="parameter">vulnnet-rst.local/</span> = Domain name<br>
+<span class="parameter">-dc-ip $target</span> = Domain controller IP<br>
+<span class="parameter">-usersfile users.txt</span> = File with usernames to test<br>
+<span class="parameter">-format john</span> = Output format for John the Ripper<br>
+<span class="parameter">-outputfile hashes.txt</span> = Save hashes to this file<br>
+<strong>What happens:</strong> For each user without pre-auth, the tool gets an encrypted ticket containing their password hash<br>
+<strong>Success indicator:</strong> If the command finds vulnerable users, it saves their hashes for cracking.
+</div>
+
+<h3>Command 13: Cracking AS-REP Hashes</h3>
+<div class="command">john hashes.txt --wordlists=/usr/share/wordlists/rockyou.txt</div>
+<div class="explanation">
+<strong>Purpose:</strong> Crack the password hashes obtained from AS-REP roasting.<br>
+<span class="parameter">john</span> = John the Ripper password cracker<br>
+<span class="parameter">hashes.txt</span> = File containing the AS-REP hashes<br>
+<span class="parameter">--wordlists=</span> = Dictionary file for password attempts<br>
+<span class="parameter">rockyou.txt</span> = Popular password list with 14+ million passwords<br>
+<strong>How it works:</strong> Tries each password from rockyou.txt against the hash until a match is found<br>
+<strong>Note:</strong> The comment indicates an AS-REP hash was found and cracked, revealing user credentials.
+</div>
+
+<div class="note">
+<strong>First Credential Obtained:</strong> Based on subsequent commands, the AS-REP roasting revealed credentials for user "t-skid" with password "tj072889*". This gives the attacker their first valid domain account.
+</div>
+</div>
+
+<div class="section">
+<h2>Phase 5: Credential Validation and Access Attempts</h2>
+
+<h3>Command 14: Validating SMB Access</h3>
+<div class="command">crackmapexec smb $target -u t-skid -p 'tj072889*'</div>
+<div class="explanation">
+<strong>Purpose:</strong> Test if the cracked credentials work for SMB access.<br>
+<span class="parameter">-u t-skid</span> = Username<br>
+<span class="parameter">-p 'tj072889*'</span> = Password<br>
+<strong>What it checks:</strong> Can this user authenticate to the SMB service?<br>
+<strong>Expected result:</strong> Should show successful authentication if credentials are valid<br>
+<strong>Information gained:</strong> User permissions, accessible shares, and system details
+</div>
+
+<h3>Command 15: Testing WinRM Access</h3>
+<div class="command">crackmapexec winrm $target -u t-skid -p 'tj072889*'</div>
+<div class="explanation">
+<strong>Purpose:</strong> Check if the user can access Windows Remote Management (WinRM).<br>
+<span class="parameter">winrm</span> = Windows Remote Management protocol<br>
+<strong>What WinRM provides:</strong> Command-line shell access to Windows systems<br>
+<strong>Why it matters:</strong> WinRM access allows remote command execution, which is more valuable than just file access<br>
+<strong>Common result:</strong> Many standard users don't have WinRM permissions
+</div>
+</div>
+
+<div class="section">
+<h2>Phase 6: Kerberoasting Attack</h2>
+
+<h3>What is Kerberoasting?</h3>
+<p>Kerberoasting targets service accounts that have Service Principal Names (SPNs) registered. When a user requests access to a service, Kerberos provides a service ticket encrypted with the service account's password. Attackers can request these tickets and crack them offline to recover service account passwords.</p>
+
+<h3>Command 16: Requesting Service Tickets</h3>
+<div class="command">impacket-GetUsersSPNs -dc-ip $target 'vulnnet-rst.local/t-skid:tj072889*' -request</div>
+<div class="explanation">
+<strong>Purpose:</strong> Request Kerberos service tickets for accounts with SPNs.<br>
+<span class="parameter">impacket-GetUsersSPNs</span> = Tool for Kerberoasting<br>
+<span class="parameter">-dc-ip $target</span> = Domain controller IP<br>
+<span class="parameter">'vulnnet-rst.local/t-skid:tj072889*'</span> = Authenticated user credentials<br>
+<span class="parameter">-request</span> = Request the actual service tickets<br>
+<strong>How it works:</strong><br>
+1. Authenticates as t-skid<br>
+2. Queries AD for accounts with SPNs<br>
+3. Requests service tickets for those accounts<br>
+4. Returns encrypted tickets containing service account password hashes<br>
+<strong>Target accounts:</strong> Usually service accounts running databases, web servers, or applications
+</div>
+
+<h3>Command 17: Editing the Kerberos Hash</h3>
+<div class="command">gedit krb.hash</div>
+<div class="explanation">
+<strong>Purpose:</strong> Open a text editor to save the Kerberos service ticket hash.<br>
+<span class="parameter">gedit</span> = GNOME text editor<br>
+<span class="parameter">krb.hash</span> = File to store the Kerberoast hash<br>
+<strong>Manual step:</strong> The attacker copies the service ticket hash from the previous command output into this file<br>
+<strong>Why this step:</strong> Prepares the hash for password cracking
+</div>
+
+<h3>Command 18: Cracking Kerberos Hashes</h3>
+<div class="command">Haiti (krb.hash)/ john krb.hash --wordlists=/usr/share/wordlists/rockyou.txt</div>
+<div class="explanation">
+<strong>Purpose:</strong> Crack the Kerberos service ticket hash to recover the service account password.<br>
+<span class="parameter">Haiti (krb.hash)/</span> = Hash identification tool (determines hash type)<br>
+<span class="parameter">john krb.hash</span> = John the Ripper cracking the hash file<br>
+<span class="parameter">--wordlists=rockyou.txt</span> = Password dictionary<br>
+<strong>Process:</strong><br>
+1. Haiti identifies this as a Kerberos hash<br>
+2. John attempts passwords from rockyou.txt against the hash<br>
+3. When successful, reveals the service account password<br>
+<strong>Result:</strong> Based on subsequent commands, this revealed credentials for "enterprise-core-vn" with password "ry=ibfkvf,s6h,"
+</div>
+
+<div class="note">
+<strong>Service Account Compromised:</strong> The Kerberoasting attack successfully cracked a service account password. Service accounts often have elevated privileges and are prime targets for privilege escalation.
+</div>
+</div>
+
+<div class="section">
+<h2>Phase 7: Service Account Access and Enumeration</h2>
+
+<h3>Command 19: Testing SMB with Service Account</h3>
+<div class="command">crackmapexec smb $target -u enterprise-core-vn -p 'ry=ibfkvf,s6h,'</div>
+<div class="explanation">
+<strong>Purpose:</strong> Test SMB access with the newly cracked service account credentials.<br>
+<strong>Why service accounts matter:</strong> They often have more privileges than regular user accounts<br>
+<strong>Expected improvements:</strong> Access to more shares, potentially administrative shares<br>
+<strong>Information gathering:</strong> The service account's permissions and accessible resources
+</div>
+
+<h3>Command 20: Testing WinRM with Service Account</h3>
+<div class="command">crackmapexec winrm $target -u enterprise-core-vn -p 'ry=ibfkvf,s6h,'</div>
+<div class="explanation">
+<strong>Purpose:</strong> Check if the service account has WinRM access.<br>
+<strong>Service account advantage:</strong> More likely to have remote access permissions than regular users<br>
+<strong>Success indicator:</strong> If successful, provides remote shell access to the system
+</div>
+
+<h3>Command 21: Establishing Remote Shell</h3>
+<div class="command">evil-winrm -u enterprise-core-vn -p 'ry=ibfkvf,s6h,' -i $target</div>
+<div class="explanation">
+<strong>Purpose:</strong> Establish a remote PowerShell session using WinRM.<br>
+<span class="parameter">evil-winrm</span> = Enhanced WinRM client with additional features<br>
+<span class="parameter">-u enterprise-core-vn</span> = Username<br>
+<span class="parameter">-p 'ry=ibfkvf,s6h,'</span> = Password<br>
+<span class="parameter">-i $target</span> = Target IP address<br>
+<strong>What this provides:</strong><br>
+- Interactive PowerShell command line<br>
+- File upload/download capabilities<br>
+- Access to Windows commands and scripts<br>
+<strong>Milestone:</strong> The comment "(userflag pawned!! foothold access for a service account)" indicates successful system access.
+</div>
+
+<h3>Command 22: RID Brute Force</h3>
+<div class="command">crackmapexec smb $target -u enterprise-core-vn -p 'ry=ibfkvf,s6h,' --rid-brute</div>
+<div class="explanation">
+<strong>Purpose:</strong> Enumerate all users and groups by brute forcing Relative Identifiers (RIDs).<br>
+<span class="parameter">--rid-brute</span> = Enumerate users by trying sequential RID numbers<br>
+<strong>What RIDs are:</strong> Unique numbers assigned to each user and group in the domain<br>
+<strong>How it works:</strong> Tries RID 500, 501, 502, etc., to discover all domain accounts<br>
+<strong>Information gained:</strong><br>
+- Complete list of domain users<br>
+- Group memberships<br>
+- Service accounts<br>
+- Administrative accounts<br>
+<strong>Why it's powerful:</strong> Provides comprehensive domain reconnaissance
+</div>
+</div>
+
+<div class="section">
+<h2>Phase 8: Privilege Escalation Through SYSVOL</h2>
+
+<h3>Command 23: Accessing SYSVOL Share</h3>
+<div class="command">smbclient \\\\$target\\SYSVOL -U 'enterprise-core-vn'</div>
+<div class="explanation">
+<strong>Purpose:</strong> Access the SYSVOL share, which contains domain policies and scripts.<br>
+<strong>What SYSVOL contains:</strong><br>
+- Group Policy Objects (GPOs)<br>
+- Login scripts<br>
+- Administrative scripts<br>
+- Sometimes cached credentials<br>
+<span class="parameter">SYSVOL</span> = System Volume shared by all domain controllers<br>
+<strong>Why it's valuable:</strong> SYSVOL often contains scripts with hardcoded passwords or sensitive configuration information<br>
+<strong>Discovery:</strong> The comment indicates a "resetpassword.vbs" file was found with credentials
+</div>
+
+<div class="note">
+<strong>Critical Discovery:</strong> Inside SYSVOL, the attacker found a Visual Basic script called "resetpassword.vbs" that contained hardcoded credentials for a more privileged account.
+</div>
+
+<h3>Command 24: Testing New Privileged Credentials</h3>
+<div class="command">crackmapexec smb $target -u a-whitehat -p 'bNdKVkjv3RR9ht'</div>
+<div class="explanation">
+<strong>Purpose:</strong> Test the credentials found in the SYSVOL script.<br>
+<span class="parameter">a-whitehat</span> = New username (likely an administrative account based on the "a-" prefix)<br>
+<span class="parameter">bNdKVkjv3RR9ht</span> = Password found in the resetpassword.vbs script<br>
+<strong>Account naming convention:</strong> The "a-" prefix often indicates administrative accounts<br>
+<strong>Expected result:</strong> Higher privileges than the service account
+</div>
+</div>
+
+<div class="section">
+<h2>Phase 9: Administrative Access and System Compromise</h2>
+
+<h3>Command 25: PSExec Shell Attempt</h3>
+<div class="command">rlwrap impacket-psexec vulnnet-rst.local/a-Whitehat:bNdKVkjv3RR9ht@$target</div>
+<div class="explanation">
+<strong>Purpose:</strong> Attempt to get a SYSTEM-level shell using PSExec.<br>
+<span class="parameter">rlwrap</span> = Provides command history and line editing<br>
+<span class="parameter">impacket-psexec</span> = Python implementation of PSExec<br>
+<span class="parameter">vulnnet-rst.local/a-Whitehat:bNdKVkjv3RR9ht</span> = Domain credentials<br>
+<span class="parameter">@$target</span> = Target system<br>
+<strong>What PSExec does:</strong><br>
+- Uploads a service executable to the target<br>
+- Creates and starts a Windows service<br>
+- Provides SYSTEM-level command shell<br>
+<strong>Privilege level:</strong> SYSTEM is the highest privilege on Windows (higher than Administrator)
+</div>
+
+<h3>Command 26: WMIExec Shell Attempt</h3>
+<div class="command">rlwrap impacket-wmixec vulnnet-rst.local/a-Whitehat:bNdKVkjv3RR9ht@$target</div>
+<div class="explanation">
+<strong>Purpose:</strong> Alternative method to get administrative shell using WMI (Windows Management Instrumentation).<br>
+<span class="parameter">impacket-wmiexec</span> = WMI-based remote execution tool<br>
+<strong>How WMI works:</strong><br>
+- Uses Windows Management Instrumentation<br>
+- Executes commands through WMI classes<br>
+- Often bypasses some security controls<br>
+<strong>Why try both:</strong> PSExec and WMIExec use different methods; one might work when the other fails<br>
+<strong>Note:</strong> There's a typo in the original command (wmixec instead of wmiexec)
+</div>
+
+<h3>Command 27: Privilege Verification</h3>
+<div class="command">whoami /all</div>
+<div class="explanation">
+<strong>Purpose:</strong> Display comprehensive information about the current user's identity and privileges.<br>
+<span class="parameter">whoami</span> = Shows current username<br>
+<span class="parameter">/all</span> = Shows detailed information including:<br>
+- Username and domain<br>
+- Group memberships<br>
+- Privileges (SeDebugPrivilege, SeBackupPrivilege, etc.)<br>
+- Security identifiers (SIDs)<br>
+<strong>What to look for:</strong><br>
+- Domain Admin group membership<br>
+- Administrator privileges<br>
+- SYSTEM account access<br>
+<strong>Critical finding:</strong> The comment indicates "the user is domain admin which means the user has all the NTLM hashes in the domain controller"
+</div>
+
+<div class="note">
+<strong>Domain Admin Access Achieved:</strong> The whoami /all command confirmed that a-whitehat is a Domain Administrator, which provides complete control over the Active Directory domain.
+</div>
+</div>
+
+<div class="section">
+<h2>Phase 10: Domain Domination and Hash Extraction</h2>
+
+<h3>Command 28: Extracting All Domain Hashes</h3>
+<div class="command">impacket-secretsdump -just-dc-ntlm vulnnet-rst.local/a-Whitehat:bNdKVkjv3RR9ht@$target</div>
+<div class="explanation">
+<strong>Purpose:</strong> Extract all NTLM password hashes from the Active Directory database.<br>
+<span class="parameter">impacket-secretsdump</span> = Tool for extracting credentials from Windows systems<br>
+<span class="parameter">-just-dc-ntlm</span> = Only extract NTLM hashes from the domain controller<br>
+<span class="parameter">vulnnet-rst.local/a-Whitehat:bNdKVkjv3RR9ht</span> = Domain admin credentials<br>
+<span class="parameter">@$target</span> = Domain controller IP<br>
+<strong>What it extracts:</strong><br>
+- NTLM hashes for all domain users<br>
+- Computer account hashes<br>
+- Service account hashes<br>
+- Built-in account hashes (Administrator, Guest, etc.)<br>
+<strong>Why this is critical:</strong><br>
+- NTLM hashes can be used for pass-the-hash attacks<br>
+- Provides access to every account in the domain<br>
+- Can be cracked offline to recover plaintext passwords<br>
+<strong>Impact:</strong> Complete compromise of the entire Active Directory domain
+</div>
+
+<h3>Commands 29-30: Administrator Shell Access</h3>
+<div class="command">rlwrap impacket-psexec vulnnet-rst.local/Administrator@$target -hashes :  *************************<br><br>
+rlwrap impacket-wmiexec vulnnet-rst.local/Administrator@$target -hashes :  *************************</div>
+<div class="explanation">
+<strong>Purpose:</strong> Use the extracted Administrator hash to get SYSTEM shells without needing the password.<br>
+<span class="parameter">Administrator@$target</span> = Built-in Administrator account<br>
+<span class="parameter">-hashes : *************************</span> = Pass-the-hash authentication (NTLM hash instead of password)<br>
+<strong>Pass-the-Hash Technique:</strong><br>
+- Uses NTLM hash directly for authentication<br>
+- No need to crack the password<br>
+- Works because Windows accepts hash-based authentication<br>
+<strong>Result:</strong> SYSTEM-level shell as the domain's built-in Administrator<br>
+<strong>Final Impact:</strong> Complete administrative control over the domain controller
+</div>
+
+<div class="note">
+<strong>GAME OVER - Domain Completely Compromised:</strong> The comment "Vulnn3et has been ROOTED!" indicates total success. The attacker now has:
+<ul>
+<li>SYSTEM-level access to the domain controller</li>
+<li>All user password hashes</li>
+<li>Ability to create/delete users and groups</li>
+<li>Access to all domain resources</li>
+<li>Capability to grant authentication tickets to any resource</li>
+</ul>
+</div>
+</div>
+
+<div class="section">
+<h2>Attack Summary and Timeline</h2>
+
+<h3>What the Attacker Accomplished:</h3>
+<ol>
+<li><strong>Initial Reconnaissance:</strong> Found open SMB and RPC services</li>
+<li><strong>Anonymous Access:</strong> Accessed file shares without authentication</li>
+<li><strong>User Discovery:</strong> Found valid usernames in shared folders</li>
+<li><strong>AS-REP Roasting:</strong> Exploited accounts without Kerberos pre-authentication</li>
+<li><strong>Password Cracking:</strong> Recovered first user password (t-skid)</li>
+<li><strong>Kerberoasting:</strong> Attacked service accounts with SPNs</li>
+<li><strong>Service Account Compromise:</strong> Gained access to enterprise-core-vn account</li>
+<li><strong>Privilege Escalation:</strong> Found hardcoded credentials in SYSVOL scripts</li>
+<li><strong>Domain Admin Access:</strong> Compromised a-whitehat domain administrator account</li>
+<li><strong>Complete Domination:</strong> Extracted all domain hashes and gained SYSTEM access</li>
+</ol>
+
+<h3>Key Vulnerabilities Exploited:</h3>
+<ul>
+<li>Anonymous SMB share access</li>
+<li>Accounts with disabled Kerberos pre-authentication</li>
+<li>Weak passwords susceptible to dictionary attacks</li>
+<li>Service accounts with SPNs and weak passwords</li>
+<li>Hardcoded credentials in administrative scripts</li>
+<li>Excessive privileges for service accounts</li>
+</ul>
+
+<h3>Defense Recommendations:</h3>
+<ul>
+<li>Disable anonymous access to SMB shares</li>
+<li>Enable Kerberos pre-authentication for all accounts</li>
+<li>Implement strong password policies</li>
+<li>Use managed service accounts (MSAs) instead of regular accounts for services</li>
+<li>Regular audit of SYSVOL contents</li>
+<li>Implement least privilege principles</li>
+<li>Monitor for Kerberoasting and AS-REP roasting attempts</li>
+<li>Use tools like BloodHound to identify attack paths</li>
+</ul>
+</div>
+
+<div class="section">
+<h2>Technical Glossary</h2>
+
+<h3>Key Terms Explained:</h3>
+<p><strong>AS-REP Roasting:</strong> Attack against accounts that don't require Kerberos pre-authentication. Allows obtaining password hashes without authentication.</p>
+
+<p><strong>Kerberoasting:</strong> Attack against service accounts by requesting Kerberos service tickets and cracking them offline.</p>
+
+<p><strong>Pass-the-Hash:</strong> Authentication method using NTLM hash instead of plaintext password.</p>
+
+<p><strong>RID (Relative Identifier):</strong> Unique number assigned to each security principal in a Windows domain.</p>
+
+<p><strong>SMB (Server Message Block):</strong> Network protocol for sharing files, printers, and other resources.</p>
+
+<p><strong>SPN (Service Principal Name):</strong> Unique identifier for a service instance in Active Directory.</p>
+
+<p><strong>SYSVOL:</strong> Shared folder on domain controllers containing group policies and login scripts.</p>
+
+<p><strong>WinRM (Windows Remote Management):</strong> Microsoft's implementation of WS-Management protocol for remote management.</p>
+
+<p><strong>Domain Controller:</strong> Server that responds to authentication requests and enforces security policies in a Windows domain.</p>
+
+<p><strong>NTLM Hash:</strong> One-way mathematical function of a password used for authentication in Windows environments.</p>
+</div>
+
+<p><em>This walkthrough demonstrates a typical Active Directory attack chain from initial reconnaissance to complete domain compromise. Understanding these techniques helps security professionals better defend their environments.</em></p>
+
+</body>
+</html>
